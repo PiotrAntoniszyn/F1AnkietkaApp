@@ -357,19 +357,13 @@ if st.session_state.show_admin_login and not st.session_state.show_admin:
         with col2:
             if st.button("Zaloguj"):
                 # Sprawdź hasło z secrets
-                try:
-                    if admin_password == st.secrets.admin.password:
-                        st.session_state.show_admin = True
-                        #st.rerun()
-                    else:
-                        st.error("Nieprawidłowe hasło!")
-                except:
-                    # Awaryjne hasło jeśli secrets nie jest skonfigurowane
-                    if admin_password == "admin123":
-                        st.session_state.show_admin = True
-                        #st.rerun()
-                    else:
-                        st.error("Nieprawidłowe hasło!")
+
+                if admin_password == st.secrets.admin.password:
+                    st.session_state.show_admin = True
+                    #st.rerun()
+                else:
+                    st.error("Nieprawidłowe hasło!")
+
 
 # Panel administratora (gdy zalogowany)
 if st.session_state.show_admin:
