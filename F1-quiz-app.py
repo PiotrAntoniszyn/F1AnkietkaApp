@@ -203,12 +203,12 @@ with st.form("f1_prediction_form"):
         podium_1 = st.selectbox("Pierwsze miejsce", drivers)
     with col2:
         # Filtrujemy listę, aby usunąć już wybranego kierowcę
-        podium_2_options = [d for d in drivers if d != podium_1]
-        podium_2 = st.selectbox("Drugie miejsce", podium_2_options)
+        #podium_2_options = [d for d in drivers if d != podium_1]
+        podium_2 = st.selectbox("Drugie miejsce", drivers)
     with col3:
         # Filtrujemy listę, aby usunąć już wybranych kierowców
-        podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
-        podium_3 = st.selectbox("Trzecie miejsce", podium_3_options)
+        #podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
+        podium_3 = st.selectbox("Trzecie miejsce", drivers)
     
     # Sekcja 2: Różnica czasowa
     st.subheader("2. Różnica w sekundach między 1. a 2. miejscem (1 punkt)")
