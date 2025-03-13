@@ -1,0 +1,20 @@
+[
+  {
+    "question": "Czy Paweł Motyka jest super testerem?",
+    "options": [
+      "Tak",
+      "Jeszcze Jak",
+      "No nie wieem"
+    ]
+  },
+  {
+    "question": "Który zespół zdobędzie więcej punktów?",
+    "options": [
+      "Red Bull",
+      "Ferrari",
+      "Mercedes",
+      "McLaren",
+      "Robert Kubica"
+    ]
+  }
+]
