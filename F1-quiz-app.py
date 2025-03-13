@@ -360,14 +360,14 @@ if st.session_state.show_admin_login and not st.session_state.show_admin:
                 try:
                     if admin_password == st.secrets.admin.password:
                         st.session_state.show_admin = True
-                        st.rerun()
+                        #st.rerun()
                     else:
                         st.error("Nieprawidłowe hasło!")
                 except:
                     # Awaryjne hasło jeśli secrets nie jest skonfigurowane
                     if admin_password == "admin123":
                         st.session_state.show_admin = True
-                        st.rerun()
+                        #st.rerun()
                     else:
                         st.error("Nieprawidłowe hasło!")
 
