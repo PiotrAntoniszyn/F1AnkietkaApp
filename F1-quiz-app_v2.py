@@ -315,15 +315,18 @@ def logout_admin():
 with st.form("f1_prediction_form"):
     # Dane osobowe
     st.subheader("Twoje dane")
+    
+    user_names = ["Agatka", "Iza", "Kinga","Paweł","Piotrek","Seweryn"]
+
+    
     col1, col2 = st.columns(2)
     with col1:
-        user_name = st.text_input("Imię")
+        user_name = st.selectbox("Imię",user_names)
    
     st.markdown("---")
     
     # Lista kierowców
     drivers = get_f1_drivers()
-    
     # Sekcja 1: Podium wyścigu
     st.subheader("1. Podium wyścigu (1 punkt za każdego kierowcę, +1 za całe podium)")
     col1, col2, col3 = st.columns(3)
