@@ -1020,8 +1020,8 @@ if st.session_state.show_admin:
                                         st.success(f"Wyniki dla wyścigu {race_options[selected_race_index]} zostały zapisane")
                                         
                                         # Automatyczne obliczanie punktów
-                                        if st.button("Oblicz punkty użytkowników na podstawie dodanych wyników"):
-                                            st.info("Funkcja w przygotowaniu...")
+                                        # if st.button("Oblicz punkty użytkowników na podstawie dodanych wyników"):
+                                        #     st.info("Funkcja w przygotowaniu...")
                                             
                                         st.rerun()
                                     else:
