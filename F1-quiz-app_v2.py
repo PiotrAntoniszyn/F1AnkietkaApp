@@ -847,11 +847,11 @@ if st.session_state.show_admin:
                             with col1:
                                 podium_1 = st.selectbox("Pierwsze miejsce", drivers, index=drivers.index(result['podium_1']) if result['podium_1'] in drivers else 0)
                             with col2:
-                                podium_2_options = [d for d in drivers if d != podium_1]
-                                podium_2 = st.selectbox("Drugie miejsce", drivers, index=drivers.index(result['podium_2']) if result['podium_2'] in podium_2_options else 0)
+                                #podium_2_options = [d for d in drivers if d != podium_1]
+                                podium_2 = st.selectbox("Drugie miejsce", drivers, index=drivers.index(result['podium_2']) if result['podium_2'] in drivers else 0)
                             with col3:
-                                podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
-                                podium_3 = st.selectbox("Trzecie miejsce", drivers, index=drivers.index(result['podium_3']) if result['podium_3'] in podium_3_options else 0)
+                                #podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
+                                podium_3 = st.selectbox("Trzecie miejsce", drivers, index=drivers.index(result['podium_3']) if result['podium_3'] in drivers else 0)
                             
                             # Pozostałe wyniki
                             time_diff = st.radio(
@@ -948,11 +948,11 @@ if st.session_state.show_admin:
                             with col1:
                                 podium_1 = st.selectbox("Pierwsze miejsce", drivers)
                             with col2:
-                                podium_2_options = [d for d in drivers if d != podium_1]
-                                podium_2 = st.selectbox("Drugie miejsce", podium_2_options)
+                                #podium_2_options = [d for d in drivers if d != podium_1]
+                                podium_2 = st.selectbox("Drugie miejsce", drivers)
                             with col3:
-                                podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
-                                podium_3 = st.selectbox("Trzecie miejsce", podium_3_options)
+                                #podium_3_options = [d for d in drivers if d not in [podium_1, podium_2]]
+                                podium_3 = st.selectbox("Trzecie miejsce", drivers)
                             
                             # Pozostałe wyniki
                             time_diff = st.radio(
