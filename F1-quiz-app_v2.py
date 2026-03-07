@@ -224,16 +224,17 @@ def send_email_confirmation(predictions, user_name):
 def get_f1_drivers():
     # Aktualna lista kierowców F1 2025 zgodnie z dostarczonym obrazem
     teams_drivers = {
-        'Red Bull Racing': ['Max Verstappen', 'Liam Lawson'],
+        'Red Bull Racing': ['Max Verstappen', ' Isack Hadjar'],
         'Ferrari': ['Charles Leclerc', 'Lewis Hamilton'],
         'Mercedes': ['Andrea Kimi Antonelli', 'George Russell'],
         'McLaren': ['Lando Norris', 'Oscar Piastri'],
         'Aston Martin': ['Fernando Alonso', 'Lance Stroll'],
         'Alpine': ['Jack Doohan', 'Pierre Gasly'],
         'Williams': ['Alexander Albon', 'Carlos Sainz Jr.'],
-        'Racing Bulls': ['Isack Hadjar', 'Yuki Tsunoda'],
-        'Kick Sauber': ['Gabriel Bortoleto', 'Nico Hülkenberg'],
-        'Haas': ['Esteban Ocon', 'Oliver Bearman']
+        'Racing Bulls': ['Arvid Lindblad', 'Liam Lawson'],
+        'Audi': ['Gabriel Bortoleto', 'Nico Hülkenberg'],
+        'Haas': ['Esteban Ocon', 'Oliver Bearman'],
+        'Cadillac': ['Valtteri Bottas', 'Sergio Perez']
     }
     
     drivers = []
@@ -369,14 +370,14 @@ with st.form("f1_prediction_form"):
     st.subheader("6. Ilu kierowców zostanie sklasyfikowanych? (1 punkt)")
     classified_drivers = st.radio(
         "Wybierz przedział",
-        ["20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+        ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
     )
     
     # Sekcja 7: Liczba zespołów z punktami
     st.subheader("7. Ile zespołów zdobędzie punkty? (1 punkt)")
     teams_with_points = st.select_slider(
         "Wybierz liczbę zespołów",
-        options=[5, 6, 7, 8, 9, 10]
+        options=[5, 6, 7, 8, 9, 10, 11]
     )
     
     # Sekcja 8: Dodatkowe pytania (zmienne)
@@ -1311,7 +1312,6 @@ if active_races:
                         # Oblicz punkty dla każdego użytkownika
                         for submission in race_submissions:
                             points = 0
-                            print(submission['user_name'])
                             # Podium - do 4 punktów
                             podium_points = 0
                             if submission['podium_1'] == race_result['podium_1']:
