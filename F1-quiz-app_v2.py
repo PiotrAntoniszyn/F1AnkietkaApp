@@ -54,13 +54,43 @@ st.markdown(app_description)
 def get_active_races():
     if not supabase_connected:
         return []
-    
+
     try:
         response = supabase.table('races').select('*').eq('is_active', True).execute()
         return response.data
     except Exception as e:
         st.error(f"Błąd podczas pobierania wyścigów: {e}")
         return []
+
+@st.cache_data(ttl=60)
+def get_all_races():
+    if not supabase_connected:
+        return []
+    try:
+        return supabase.table('races').select('*').execute().data
+    except Exception as e:
+        st.error(f"Błąd podczas pobierania wyścigów: {e}")
+        return []
+
+def calculate_points(submission, race_result):
+    podium_points = sum(
+        1 for pos in ['podium_1', 'podium_2', 'podium_3']
+        if submission[pos] == race_result[pos]
+    )
+    if podium_points == 3:
+        podium_points += 1
+
+    points = podium_points
+    for field in ['time_diff', 'driver_of_day', 'safety_car', 'red_flag',
+                  'classified_drivers', 'teams_with_points']:
+        if submission[field] == race_result[field]:
+            points += 1
+
+    for key, value in submission.get('extra_answers', {}).items():
+        if key in race_result.get('extra_answers', {}) and value == race_result['extra_answers'][key]:
+            points += 1
+
+    return points
 
 # Funkcja do zapisywania odpowiedzi do Supabase
 def save_submission(predictions, user_name, race_id):
@@ -224,7 +254,7 @@ def send_email_confirmation(predictions, user_name):
 def get_f1_drivers():
     # Aktualna lista kierowców F1 2025 zgodnie z dostarczonym obrazem
     teams_drivers = {
-        'Red Bull Racing': ['Max Verstappen', ' Isack Hadjar'],
+        'Red Bull Racing': ['Max Verstappen', 'Isack Hadjar'],
         'Ferrari': ['Charles Leclerc', 'Lewis Hamilton'],
         'Mercedes': ['Andrea Kimi Antonelli', 'George Russell'],
         'McLaren': ['Lando Norris', 'Oscar Piastri'],
@@ -237,12 +267,7 @@ def get_f1_drivers():
         'Cadillac': ['Valtteri Bottas', 'Sergio Perez']
     }
     
-    drivers = []
-    for team, team_drivers in teams_drivers.items():
-        for driver in team_drivers:
-            drivers.append(driver)
-    
-    return drivers
+    return [driver for team_drivers in teams_drivers.values() for driver in team_drivers]
 
 # Pobranie aktywnych wyścigów
 active_races = get_active_races()
@@ -313,138 +338,128 @@ def logout_admin():
     st.rerun()
 
 # Formularz główny
-with st.form("f1_prediction_form"):
-    # Dane osobowe
-    st.subheader("Twoje dane")
-    
-    user_names = ["Agatka", "Iza", "Kinga","Paweł","Piotrek","Seweryn"]
+if not active_races:
+    st.info("Brak aktywnych wyścigów. Formularz typowania zostanie otwarty przed kolejnym wyścigiem.")
+else:
+    with st.form("f1_prediction_form"):
+        # Dane osobowe
+        st.subheader("Twoje dane")
 
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        user_name = st.selectbox("Imię",user_names)
-   
-    st.markdown("---")
-    
-    # Lista kierowców
-    drivers = get_f1_drivers()
-    # Sekcja 1: Podium wyścigu
-    st.subheader("1. Podium wyścigu (1 punkt za każdego kierowcę, +1 za całe podium)")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        podium_1 = st.selectbox("Pierwsze miejsce", drivers)
-    with col2:
-        # Filtrujemy listę, aby usunąć już wybranego kierowcę
-        podium_2 = st.selectbox("Drugie miejsce", drivers)
-    with col3:
-        # Filtrujemy listę, aby usunąć już wybranych kierowców
-        podium_3 = st.selectbox("Trzecie miejsce", drivers)
-    
-    # Sekcja 2: Różnica czasowa
-    st.subheader("2. Różnica w sekundach między 1. a 2. miejscem (1 punkt)")
-    time_diff = st.radio(
-        "Wybierz przedział",
-        ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund", 
-         "10.001-20 sekund", "Więcej niż 20 sekund"]
-    )
-    
-    # Sekcja 3: Driver of The Day
-    st.subheader("3. Kierowca dnia (1 punkt)")
-    dotd = st.selectbox("Driver of The Day", drivers)
-    
-    # Sekcja 4: Safety Car
-    st.subheader("4. Safety Car (1 punkt)")
-    safety_car = st.radio(
-        "Czy podczas wyścigu wyjedzie Safety Car?",
-        ["Tak", "Nie"]
-    )
-    
-    # Sekcja 5: Czerwona flaga
-    st.subheader("5. Czerwona flaga (1 punkt)")
-    red_flag = st.radio(
-        "Czy podczas wyścigu będzie czerwona flaga?",
-        ["Tak", "Nie"]
-    )
-    
-    # Sekcja 6: Liczba sklasyfikowanych kierowców
-    st.subheader("6. Ilu kierowców zostanie sklasyfikowanych? (1 punkt)")
-    classified_drivers = st.radio(
-        "Wybierz przedział",
-        ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
-    )
-    
-    # Sekcja 7: Liczba zespołów z punktami
-    st.subheader("7. Ile zespołów zdobędzie punkty? (1 punkt)")
-    teams_with_points = st.select_slider(
-        "Wybierz liczbę zespołów",
-        options=[5, 6, 7, 8, 9, 10, 11]
-    )
-    
-    # Sekcja 8: Dodatkowe pytania (zmienne)
-    st.subheader("8. Dodatkowe pytania (1 punkt za każde)")
-    
-    # Dynamiczne dodatkowe pytania
-    extra_answers = {}
-    for i, question_data in enumerate(custom_questions):
-        question_key = f"Pytanie dodatkowe {i+1}"
-        extra_answers[question_key] = st.radio(
-            question_data["question"],
-            options=question_data["options"]
+        user_names = ["Agatka", "Iza", "Kinga", "Paweł", "Piotrek", "Seweryn"]
+
+        col1, col2 = st.columns(2)
+        with col1:
+            user_name = st.selectbox("Imię", user_names)
+
+        st.markdown("---")
+
+        # Lista kierowców
+        drivers = get_f1_drivers()
+
+        # Sekcja 1: Podium wyścigu
+        st.subheader("1. Podium wyścigu (1 punkt za każdego kierowcę, +1 za całe podium)")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            podium_1 = st.selectbox("Pierwsze miejsce", drivers)
+        with col2:
+            podium_2 = st.selectbox("Drugie miejsce", drivers)
+        with col3:
+            podium_3 = st.selectbox("Trzecie miejsce", drivers)
+
+        # Sekcja 2: Różnica czasowa
+        st.subheader("2. Różnica w sekundach między 1. a 2. miejscem (1 punkt)")
+        time_diff = st.radio(
+            "Wybierz przedział",
+            ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund",
+             "10.001-20 sekund", "Więcej niż 20 sekund"]
         )
-    
-    # Przycisk wysłania formularza
-    submitted = st.form_submit_button("Wyślij typy")
-    
-    if submitted:
-        if not user_name:
-            st.error("Wypełnij imię!")
-        elif not race_id and supabase_connected:
-            st.error("Brak aktywnego wyścigu do typowania!")
-        else:
-            # Zbieramy wszystkie przewidywania
-            predictions = {
-                "Podium 1. miejsce": podium_1,
-                "Podium 2. miejsce": podium_2,
-                "Podium 3. miejsce": podium_3,
-                "Różnica czasowa": time_diff,
-                "Kierowca dnia": dotd,
-                "Safety Car": safety_car,
-                "Czerwona flaga": red_flag,
-                "Liczba sklasyfikowanych kierowców": classified_drivers,
-                "Liczba zespołów z punktami": teams_with_points,
-            }
-            
-            # Dodajemy odpowiedzi na pytania dodatkowe
-            predictions.update(extra_answers)
-            
-            # Zapisujemy dane - albo do Supabase, albo wysyłamy email
-            success = False
-            
-            if supabase_connected and race_id:
-                # Zapisz do Supabase
-                success = save_submission(predictions, user_name, race_id)
+
+        # Sekcja 3: Driver of The Day
+        st.subheader("3. Kierowca dnia (1 punkt)")
+        dotd = st.selectbox("Driver of The Day", drivers)
+
+        # Sekcja 4: Safety Car
+        st.subheader("4. Safety Car (1 punkt)")
+        safety_car = st.radio(
+            "Czy podczas wyścigu wyjedzie Safety Car?",
+            ["Tak", "Nie"]
+        )
+
+        # Sekcja 5: Czerwona flaga
+        st.subheader("5. Czerwona flaga (1 punkt)")
+        red_flag = st.radio(
+            "Czy podczas wyścigu będzie czerwona flaga?",
+            ["Tak", "Nie"]
+        )
+
+        # Sekcja 6: Liczba sklasyfikowanych kierowców
+        st.subheader("6. Ilu kierowców zostanie sklasyfikowanych? (1 punkt)")
+        classified_drivers = st.radio(
+            "Wybierz przedział",
+            ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+        )
+
+        # Sekcja 7: Liczba zespołów z punktami
+        st.subheader("7. Ile zespołów zdobędzie punkty? (1 punkt)")
+        teams_with_points = st.select_slider(
+            "Wybierz liczbę zespołów",
+            options=[5, 6, 7, 8, 9, 10, 11]
+        )
+
+        # Sekcja 8: Dodatkowe pytania (zmienne)
+        st.subheader("8. Dodatkowe pytania (1 punkt za każde)")
+
+        extra_answers = {}
+        for i, question_data in enumerate(custom_questions):
+            question_key = f"Pytanie dodatkowe {i+1}"
+            extra_answers[question_key] = st.radio(
+                question_data["question"],
+                options=question_data["options"]
+            )
+
+        submitted = st.form_submit_button("Wyślij typy")
+
+        if submitted:
+            if not user_name:
+                st.error("Wypełnij imię!")
+            elif not race_id and supabase_connected:
+                st.error("Brak aktywnego wyścigu do typowania!")
             else:
-                # Użyj metody wysyłania emaila jako fallback
-                success = send_email_confirmation(predictions, user_name)
-            
-            if success:
-                st.success("Chill, koniec męczarni! Twoje typy zostały zapisane! Powodzenia! 🏆")
-                
-                # Pokazujemy podsumowanie
-                st.subheader("Podsumowanie Twoich typów:")
-                
-                # Tworzymy tabelę z przewidywaniami
-                df = pd.DataFrame(list(predictions.items()), columns=["Kategoria", "Twój typ"])
-                st.table(df)
-                
-                # Wyświetl obrazek, jeśli istnieje
-                try:
-                    img = Image.open("fernando.png")
-                    st.image(img, caption="Powodzenia!", use_container_width=True)
-                except Exception as e:
-                    st.warning(f"Nie udało się wyświetlić obrazka: {e}")
-            else:
-                st.error("Wystąpił problem podczas zapisywania formularza. Spróbuj ponownie.")
+                predictions = {
+                    "Podium 1. miejsce": podium_1,
+                    "Podium 2. miejsce": podium_2,
+                    "Podium 3. miejsce": podium_3,
+                    "Różnica czasowa": time_diff,
+                    "Kierowca dnia": dotd,
+                    "Safety Car": safety_car,
+                    "Czerwona flaga": red_flag,
+                    "Liczba sklasyfikowanych kierowców": classified_drivers,
+                    "Liczba zespołów z punktami": teams_with_points,
+                }
+
+                predictions.update(extra_answers)
+
+                success = False
+
+                if supabase_connected and race_id:
+                    success = save_submission(predictions, user_name, race_id)
+                else:
+                    success = send_email_confirmation(predictions, user_name)
+
+                if success:
+                    st.success("Chill, koniec męczarni! Twoje typy zostały zapisane! Powodzenia! 🏆")
+
+                    st.subheader("Podsumowanie Twoich typów:")
+                    df = pd.DataFrame(list(predictions.items()), columns=["Kategoria", "Twój typ"])
+                    st.table(df)
+
+                    try:
+                        img = Image.open("fernando.png")
+                        st.image(img, caption="Powodzenia!", use_container_width=True)
+                    except Exception as e:
+                        st.warning(f"Nie udało się wyświetlić obrazka: {e}")
+                else:
+                    st.error("Wystąpił problem podczas zapisywania formularza. Spróbuj ponownie.")
 
 # Dodanie instrukcji punktacji
 with st.expander("Zasady punktacji"):
@@ -505,16 +520,10 @@ if st.session_state.show_admin_login and not st.session_state.show_admin:
                 try:
                     if admin_password == st.secrets.admin.password:
                         st.session_state.show_admin = True
-                        #st.rerun()
                     else:
                         st.error("Nieprawidłowe hasło!")
-                except:
-                    # Awaryjne hasło jeśli secrets nie jest skonfigurowane
-                    if admin_password == "admin123":
-                        st.session_state.show_admin = True
-                        st.rerun()
-                    else:
-                        st.error("Nieprawidłowe hasło!")
+                except Exception:
+                    st.error("Brak konfiguracji hasła administratora w secrets.toml")
 
 # Panel administratora (gdy zalogowany)
 if st.session_state.show_admin:
@@ -655,8 +664,7 @@ if st.session_state.show_admin:
                 st.error("Brak połączenia z bazą danych. Zarządzanie pytaniami wymaga połączenia z Supabase.")
             else:
                 # Wybór wyścigu do edycji pytań
-                races_response = supabase.table('races').select('*').execute()
-                races = races_response.data
+                races = get_all_races()
                 
                 if races:
                     race_options = [f"{race['race_name']} ({race['race_date']})" for race in races]
@@ -807,8 +815,7 @@ if st.session_state.show_admin:
                 st.error("Brak połączenia z bazą danych. Wprowadzanie wyników wymaga połączenia z Supabase.")
             else:
                 # Wybór wyścigu do wprowadzenia wyników
-                races_response = supabase.table('races').select('*').execute()
-                races = races_response.data
+                races = get_all_races()
                 
                 if races:
                     race_options = [f"{race['race_name']} ({race['race_date']})" for race in races]
@@ -879,13 +886,13 @@ if st.session_state.show_admin:
                             
                             classified_drivers = st.radio(
                                 "Liczba sklasyfikowanych kierowców",
-                                ["20", "19-18", "17-16", "15-14", "Mniej niż 14"],
+                                ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"],
                                 index=["20", "19-18", "17-16", "15-14", "Mniej niż 14"].index(result['classified_drivers'])
                             )
                             
                             teams_with_points = st.select_slider(
                                 "Liczba zespołów z punktami",
-                                options=[5, 6, 7, 8, 9, 10],
+                                options=[5, 6, 7, 8, 9, 10, 11],
                                 value=result['teams_with_points']
                             )
                             
@@ -976,12 +983,12 @@ if st.session_state.show_admin:
                             
                             classified_drivers = st.radio(
                                 "Liczba sklasyfikowanych kierowców",
-                                ["20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+                                ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
                             )
                             
                             teams_with_points = st.select_slider(
                                 "Liczba zespołów z punktami",
-                                options=[5, 6, 7, 8, 9, 10]
+                                options=[5, 6, 7, 8, 9, 10, 11]
                             )
                             
                             # Odpowiedzi na pytania dodatkowe
@@ -1040,8 +1047,7 @@ if st.session_state.show_admin:
                 st.error("Brak połączenia z bazą danych. Wyświetlanie statystyk wymaga połączenia z Supabase.")
             else:
                 # Wybór wyścigu do analizy
-                races_response = supabase.table('races').select('*').execute()
-                races = races_response.data
+                races = get_all_races()
                 
                 if races:
                     race_options = [f"{race['race_name']} ({race['race_date']})" for race in races]
@@ -1072,65 +1078,30 @@ if st.session_state.show_admin:
                             
                             # Obliczanie punktów użytkowników
                             st.subheader("Tabela wyników")
-                            
+
                             user_points = []
-                            
+
                             for submission in submissions:
-                                points = 0
-                                point_details = []
-                                
-                                # Podium - do 4 punktów
-                                podium_points = 0
-                                if submission['podium_1'] == result['podium_1']:
-                                    podium_points += 1
-                                    point_details.append("1 pkt za 1. miejsce")
-                                
-                                if submission['podium_2'] == result['podium_2']:
-                                    podium_points += 1
-                                    point_details.append("1 pkt za 2. miejsce")
-                                
-                                if submission['podium_3'] == result['podium_3']:
-                                    podium_points += 1
-                                    point_details.append("1 pkt za 3. miejsce")
-                                
-                                # Bonus za idealne podium
-                                if podium_points == 3:
-                                    podium_points += 1
+                                points = calculate_points(submission, result)
+
+                                detail_labels = {
+                                    'podium_1': "1. miejsce", 'podium_2': "2. miejsce", 'podium_3': "3. miejsce",
+                                    'time_diff': "różnica czasowa", 'driver_of_day': "DOTD",
+                                    'safety_car': "Safety Car", 'red_flag': "czerwona flaga",
+                                    'classified_drivers': "liczba kierowców", 'teams_with_points': "zespoły z punktami"
+                                }
+                                point_details = [
+                                    f"1 pkt za {label}"
+                                    for field, label in detail_labels.items()
+                                    if submission[field] == result[field]
+                                ]
+                                podium_hits = sum(1 for pos in ['podium_1', 'podium_2', 'podium_3'] if submission[pos] == result[pos])
+                                if podium_hits == 3:
                                     point_details.append("1 pkt bonus za pełne podium")
-                                
-                                points += podium_points
-                                
-                                # Pozostałe kategorie - po 1 punkcie
-                                if submission['time_diff'] == result['time_diff']:
-                                    points += 1
-                                    point_details.append("1 pkt za różnicę czasową")
-                                
-                                if submission['driver_of_day'] == result['driver_of_day']:
-                                    points += 1
-                                    point_details.append("1 pkt za DOTD")
-                                
-                                if submission['safety_car'] == result['safety_car']:
-                                    points += 1
-                                    point_details.append("1 pkt za Safety Car")
-                                
-                                if submission['red_flag'] == result['red_flag']:
-                                    points += 1
-                                    point_details.append("1 pkt za czerwoną flagę")
-                                
-                                if submission['classified_drivers'] == result['classified_drivers']:
-                                    points += 1
-                                    point_details.append("1 pkt za liczbę kierowców")
-                                
-                                if submission['teams_with_points'] == result['teams_with_points']:
-                                    points += 1
-                                    point_details.append("1 pkt za zespoły z punktami")
-                                
-                                # Pytania dodatkowe
-                                for key, value in submission['extra_answers'].items():
-                                    if key in result['extra_answers'] and value == result['extra_answers'][key]:
-                                        points += 1
+                                for key, value in submission.get('extra_answers', {}).items():
+                                    if key in result.get('extra_answers', {}) and value == result['extra_answers'][key]:
                                         point_details.append(f"1 pkt za {key}")
-                                
+
                                 user_points.append({
                                     "user_name": submission['user_name'],
                                     "points": points,
@@ -1284,119 +1255,72 @@ if st.session_state.show_admin:
                 else:
                     st.info("Brak wyścigów. Najpierw dodaj wyścig w zakładce 'Wyścigi'.")
 
-# Ogłoszenia dotyczące najnowszego wyścigu i aktualnej klasyfikacji
-if active_races:
-    with st.expander("Aktualna klasyfikacja"):
-        if not supabase_connected:
-            st.warning("Brak połączenia z bazą danych. Nie można wyświetlić klasyfikacji.")
-        else:
-            try:
-                # Pobieranie wszystkich wyścigów z wprowadzonymi wynikami
-                results_response = supabase.table('results').select('race_id').execute()
-                race_ids_with_results = [r['race_id'] for r in results_response.data]
-                
-                if race_ids_with_results:
-                    # Pobieranie wszystkich odpowiedzi dla wyścigów z wynikami
-                    all_submissions = []
-                    
-                    for race_id in race_ids_with_results:
-                        # Pobierz wyniki wyścigu
-                        race_result = supabase.table('results').select('*').eq('race_id', race_id).single().execute().data
-                        
-                        # Pobierz dane wyścigu
-                        race_data = supabase.table('races').select('*').eq('id', race_id).single().execute().data
-                        
-                        # Pobierz wszystkie typy dla tego wyścigu
-                        race_submissions = supabase.table('submissions').select('*').eq('race_id', race_id).execute().data
-                        
-                        # Oblicz punkty dla każdego użytkownika
-                        for submission in race_submissions:
-                            points = 0
-                            # Podium - do 4 punktów
-                            podium_points = 0
-                            if submission['podium_1'] == race_result['podium_1']:
-                                podium_points += 1
-                            
-                            if submission['podium_2'] == race_result['podium_2']:
-                                podium_points += 1
-                            
-                            if submission['podium_3'] == race_result['podium_3']:
-                                podium_points += 1
-                            
-                            # Bonus za idealne podium
-                            if podium_points == 3:
-                                podium_points += 1
-                            
-                            points += podium_points
-                            
-                            # Pozostałe kategorie - po 1 punkcie
-                            if submission['time_diff'] == race_result['time_diff']:
-                                points += 1
-                            
-                            if submission['driver_of_day'] == race_result['driver_of_day']:
-                                points += 1
-                            
-                            if submission['safety_car'] == race_result['safety_car']:
-                                points += 1
-                            
-                            if submission['red_flag'] == race_result['red_flag']:
-                                points += 1
-                            
-                            if submission['classified_drivers'] == race_result['classified_drivers']:
-                                points += 1
-                            
-                            if submission['teams_with_points'] == race_result['teams_with_points']:
-                                points += 1
-                            
-                            # Pytania dodatkowe
-                            for key, value in submission['extra_answers'].items():
-                                if key in race_result['extra_answers'] and value == race_result['extra_answers'][key]:
-                                    points += 1
-                            
-                            all_submissions.append({
-                                "user_name": submission['user_name'],
-                                "race_name": race_data['race_name'],
-                                "race_date": race_data['race_date'],
-                                "points": points
-                            })
-                    
-                    if all_submissions:
-                        # Stwórz DataFrame z wszystkimi typami
-                        all_subs_df = pd.DataFrame(all_submissions)
-                        
-                        # Grupuj po użytkowniku i sumuj punkty
-                        user_points = all_subs_df.groupby('user_name')['points'].sum().reset_index()
-                        user_points = user_points.sort_values('points', ascending=False)
-                        
-                        # Dodaj ranking
-                        user_points['pozycja'] = user_points['points'].rank(method='min', ascending=False).astype(int)
-                        user_points = user_points[['pozycja', 'user_name', 'points']]
-                        user_points.columns = ['Pozycja', 'Imię', 'Suma punktów']
-                        
-                        # Dodaj liczbę wyścigów
-                        races_count = all_subs_df.groupby('user_name').size().reset_index()
-                        races_count.columns = ['Imię', 'races_count']
-                        
+with st.expander("Aktualna klasyfikacja"):
+    if not supabase_connected:
+        st.warning("Brak połączenia z bazą danych. Nie można wyświetlić klasyfikacji.")
+    else:
+        try:
+            # Pobieranie wszystkich wyścigów z wprowadzonymi wynikami
+            results_response = supabase.table('results').select('race_id').execute()
+            race_ids_with_results = [r['race_id'] for r in results_response.data]
 
-                        user_points = user_points.merge(races_count, on='Imię')
-                        
-                        user_points['Liczba wyścigów'] = user_points['races_count']
-                        user_points['Średnio na wyścig'] = (user_points['Suma punktów'] / user_points['Liczba wyścigów']).round(1)
-                        
-                        # Wyświetl finałową tabelę
-                        final_table = user_points[['Pozycja', 'Imię', 'Suma punktów', 'Liczba wyścigów', 'Średnio na wyścig']]
-                        st.table(final_table)
-                        
-                        # Wykres z top 3 użytkownikami
-                        st.subheader("Najlepsi typujący")
-                        top3 = user_points.head(3)
-                        fig, ax = plt.subplots()
-                        ax.bar(top3['Imię'], top3['Suma punktów'])
-                        st.pyplot(fig)
-                    else:
-                        st.info("Brak danych do wyświetlenia. Wprowadź wyniki wyścigów i odpowiedzi użytkowników.")
+            if race_ids_with_results:
+                # Batch-fetch results, race metadata and submissions in 3 queries total
+                all_results_list = supabase.table('results').select('*').in_('race_id', race_ids_with_results).execute().data
+                all_race_data_list = supabase.table('races').select('*').in_('id', race_ids_with_results).execute().data
+                all_subs_list = supabase.table('submissions').select('*').in_('race_id', race_ids_with_results).execute().data
+
+                results_by_race = {r['race_id']: r for r in all_results_list}
+                race_data_by_id = {r['id']: r for r in all_race_data_list}
+
+                all_submissions = []
+                for submission in all_subs_list:
+                    rid = submission['race_id']
+                    if rid not in results_by_race or rid not in race_data_by_id:
+                        continue
+                    race_result = results_by_race[rid]
+                    race_data = race_data_by_id[rid]
+                    all_submissions.append({
+                        "user_name": submission['user_name'],
+                        "race_name": race_data['race_name'],
+                        "race_date": race_data['race_date'],
+                        "points": calculate_points(submission, race_result)
+                    })
+
+                if all_submissions:
+                    # Stwórz DataFrame z wszystkimi typami
+                    all_subs_df = pd.DataFrame(all_submissions)
+
+                    # Grupuj po użytkowniku i sumuj punkty
+                    user_points = all_subs_df.groupby('user_name')['points'].sum().reset_index()
+                    user_points = user_points.sort_values('points', ascending=False)
+
+                    # Dodaj ranking
+                    user_points['pozycja'] = user_points['points'].rank(method='min', ascending=False).astype(int)
+                    user_points = user_points[['pozycja', 'user_name', 'points']]
+                    user_points.columns = ['Pozycja', 'Imię', 'Suma punktów']
+
+                    # Dodaj liczbę wyścigów
+                    races_count = all_subs_df.groupby('user_name').size().reset_index()
+                    races_count.columns = ['Imię', 'Liczba wyścigów']
+
+                    user_points = user_points.merge(races_count, on='Imię')
+                    user_points['Średnio na wyścig'] = (user_points['Suma punktów'] / user_points['Liczba wyścigów']).round(1)
+
+                    # Wyświetl finałową tabelę
+                    final_table = user_points[['Pozycja', 'Imię', 'Suma punktów', 'Liczba wyścigów', 'Średnio na wyścig']]
+                    st.table(final_table)
+
+                    # Wykres z top 3 użytkownikami
+                    st.subheader("Najlepsi typujący")
+                    top3 = user_points.head(3)
+                    fig, ax = plt.subplots()
+                    ax.bar(top3['Imię'], top3['Suma punktów'])
+                    st.pyplot(fig)
                 else:
-                    st.info("Brak wyścigów z wprowadzonymi wynikami.")
-            except Exception as e:
-                st.error(f"Błąd podczas pobierania klasyfikacji: {e}")
+                    st.info("Brak danych do wyświetlenia. Wprowadź wyniki wyścigów i odpowiedzi użytkowników.")
+            else:
+                st.info("Brak wyścigów z wprowadzonymi wynikami.")
+        except Exception as e:
+            st.error(f"Błąd podczas pobierania klasyfikacji: {e}")
 st.markdown("🏎️ F1 Ankietka by Piotr Antoniszyn © 2025")
