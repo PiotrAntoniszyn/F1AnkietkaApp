@@ -12,6 +12,7 @@ import json
 from PIL import Image
 from supabase import create_client, Client
 import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 
 # Konfiguracja strony
@@ -91,6 +92,144 @@ def calculate_points(submission, race_result):
             points += 1
 
     return points
+
+# Funkcja renderująca klasyfikację ogólną (tabela + wykresy)
+def render_leaderboard():
+    if not supabase_connected:
+        st.warning("Brak połączenia z bazą danych. Nie można wyświetlić klasyfikacji.")
+        return
+
+    try:
+        # Pobieranie wszystkich wyścigów z wprowadzonymi wynikami
+        results_response = supabase.table('results').select('race_id').execute()
+        race_ids_with_results = [r['race_id'] for r in results_response.data]
+
+        if not race_ids_with_results:
+            st.info("Brak wyścigów z wprowadzonymi wynikami.")
+            return
+
+        # Batch-fetch results, race metadata and submissions in 3 queries total
+        all_results_list = supabase.table('results').select('*').in_('race_id', race_ids_with_results).execute().data
+        all_race_data_list = supabase.table('races').select('*').in_('id', race_ids_with_results).execute().data
+        all_subs_list = supabase.table('submissions').select('*').in_('race_id', race_ids_with_results).execute().data
+
+        results_by_race = {r['race_id']: r for r in all_results_list}
+        race_data_by_id = {r['id']: r for r in all_race_data_list}
+
+        all_submissions = []
+        for submission in all_subs_list:
+            rid = submission['race_id']
+            if rid not in results_by_race or rid not in race_data_by_id:
+                continue
+            race_result = results_by_race[rid]
+            race_data = race_data_by_id[rid]
+            all_submissions.append({
+                "user_name": submission['user_name'],
+                "race_id": rid,
+                "race_name": race_data['race_name'],
+                "race_date": race_data['race_date'],
+                "points": calculate_points(submission, race_result)
+            })
+
+        if not all_submissions:
+            st.info("Brak danych do wyświetlenia. Wprowadź wyniki wyścigów i odpowiedzi użytkowników.")
+            return
+
+        # Stwórz DataFrame z wszystkimi typami
+        all_subs_df = pd.DataFrame(all_submissions)
+
+        # Grupuj po użytkowniku i sumuj punkty
+        user_points = all_subs_df.groupby('user_name')['points'].sum().reset_index()
+        user_points = user_points.sort_values('points', ascending=False)
+
+        # Dodaj ranking
+        user_points['pozycja'] = user_points['points'].rank(method='min', ascending=False).astype(int)
+        user_points = user_points[['pozycja', 'user_name', 'points']]
+        user_points.columns = ['Pozycja', 'Imię', 'Suma punktów']
+
+        # Dodaj liczbę wyścigów
+        races_count = all_subs_df.groupby('user_name').size().reset_index()
+        races_count.columns = ['Imię', 'Liczba wyścigów']
+
+        user_points = user_points.merge(races_count, on='Imię')
+        user_points['Średnio na wyścig'] = (user_points['Suma punktów'] / user_points['Liczba wyścigów']).round(1)
+
+        # Wyświetl finałową tabelę
+        final_table = user_points[['Pozycja', 'Imię', 'Suma punktów', 'Liczba wyścigów', 'Średnio na wyścig']]
+        st.table(final_table)
+
+        # Wykres słupkowy z sumą punktów wszystkich typujących
+        st.subheader("Najlepsi typujący")
+        f1_red = "#E10600"
+        bar_fig = go.Figure(
+            go.Bar(
+                x=user_points['Imię'],
+                y=user_points['Suma punktów'],
+                marker_color=f1_red,
+                text=user_points['Suma punktów'],
+                textposition='outside',
+                textfont=dict(size=18)
+            )
+        )
+        bar_fig.update_layout(
+            template="plotly_white",
+            yaxis_title="Suma punktów",
+            xaxis_title=None,
+            margin=dict(t=30, b=20, l=10, r=10),
+            showlegend=False,
+            font=dict(size=16)
+        )
+        bar_fig.update_xaxes(tickfont=dict(size=16))
+        bar_fig.update_yaxes(showgrid=True, gridcolor="#eeeeee", tickfont=dict(size=14), title_font=dict(size=16))
+        st.plotly_chart(bar_fig, use_container_width=True)
+
+        # Wykres trendu - skumulowane punkty w chronologicznej kolejności wyścigów
+        st.subheader("Trend punktów w czasie")
+        trend_df = all_subs_df.copy()
+        trend_df['race_date_parsed'] = pd.to_datetime(trend_df['race_date'], errors='coerce', utc=True)
+        trend_df = trend_df.sort_values(['race_date_parsed', 'race_id'])
+        trend_df['points_cum'] = trend_df.groupby('user_name')['points'].cumsum()
+
+        # race_id gwarantuje unikalność i poprawną kolejność, nawet przy zbieżnych/brakujących datach lub powtarzających się nazwach wyścigów
+        race_order = (
+            trend_df.drop_duplicates('race_id')
+            .sort_values(['race_date_parsed', 'race_id'])[['race_id', 'race_name']]
+        )
+        trend_pivot = trend_df.pivot_table(index='race_id', columns='user_name', values='points_cum', aggfunc='last')
+        trend_pivot = trend_pivot.reindex(race_order['race_id'])
+        trend_pivot.index = race_order['race_name']
+        # Utrzymaj skumulowaną wartość dla użytkowników, którzy pominęli dany wyścig
+        trend_pivot = trend_pivot.ffill()
+
+        race_labels = list(trend_pivot.index)
+        trend_fig = go.Figure()
+        for user in trend_pivot.columns:
+            trend_fig.add_trace(
+                go.Scatter(
+                    x=race_labels, y=trend_pivot[user],
+                    mode='lines+markers', name=user,
+                    line=dict(width=3), marker=dict(size=8)
+                )
+            )
+        trend_fig.update_layout(
+            template="plotly_white",
+            yaxis_title="Suma punktów (narastająco)",
+            xaxis_title=None,
+            margin=dict(t=30, b=20, l=10, r=10),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=15)),
+            font=dict(size=16)
+        )
+        # Wymuś kolejność chronologiczną na osi X (kategorie tekstowe domyślnie sortowałyby się alfabetycznie)
+        trend_fig.update_xaxes(
+            categoryorder='array', categoryarray=race_labels, tickfont=dict(size=15),
+            showgrid=True, gridcolor="rgba(0,0,0,0.06)"
+        )
+        trend_fig.update_yaxes(
+            showgrid=True, gridcolor="rgba(0,0,0,0.06)", tickfont=dict(size=14), title_font=dict(size=16)
+        )
+        st.plotly_chart(trend_fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Błąd podczas pobierania klasyfikacji: {e}")
 
 # Funkcja do zapisywania odpowiedzi do Supabase
 def save_submission(predictions, user_name, race_id):
@@ -340,6 +479,8 @@ def logout_admin():
 # Formularz główny
 if not active_races:
     st.info("Brak aktywnych wyścigów. Formularz typowania zostanie otwarty przed kolejnym wyścigiem.")
+    with st.expander("Aktualna klasyfikacja", expanded=True):
+        render_leaderboard()
 else:
     with st.form("f1_prediction_form"):
         # Dane osobowe
@@ -1255,72 +1396,7 @@ if st.session_state.show_admin:
                 else:
                     st.info("Brak wyścigów. Najpierw dodaj wyścig w zakładce 'Wyścigi'.")
 
-with st.expander("Aktualna klasyfikacja"):
-    if not supabase_connected:
-        st.warning("Brak połączenia z bazą danych. Nie można wyświetlić klasyfikacji.")
-    else:
-        try:
-            # Pobieranie wszystkich wyścigów z wprowadzonymi wynikami
-            results_response = supabase.table('results').select('race_id').execute()
-            race_ids_with_results = [r['race_id'] for r in results_response.data]
-
-            if race_ids_with_results:
-                # Batch-fetch results, race metadata and submissions in 3 queries total
-                all_results_list = supabase.table('results').select('*').in_('race_id', race_ids_with_results).execute().data
-                all_race_data_list = supabase.table('races').select('*').in_('id', race_ids_with_results).execute().data
-                all_subs_list = supabase.table('submissions').select('*').in_('race_id', race_ids_with_results).execute().data
-
-                results_by_race = {r['race_id']: r for r in all_results_list}
-                race_data_by_id = {r['id']: r for r in all_race_data_list}
-
-                all_submissions = []
-                for submission in all_subs_list:
-                    rid = submission['race_id']
-                    if rid not in results_by_race or rid not in race_data_by_id:
-                        continue
-                    race_result = results_by_race[rid]
-                    race_data = race_data_by_id[rid]
-                    all_submissions.append({
-                        "user_name": submission['user_name'],
-                        "race_name": race_data['race_name'],
-                        "race_date": race_data['race_date'],
-                        "points": calculate_points(submission, race_result)
-                    })
-
-                if all_submissions:
-                    # Stwórz DataFrame z wszystkimi typami
-                    all_subs_df = pd.DataFrame(all_submissions)
-
-                    # Grupuj po użytkowniku i sumuj punkty
-                    user_points = all_subs_df.groupby('user_name')['points'].sum().reset_index()
-                    user_points = user_points.sort_values('points', ascending=False)
-
-                    # Dodaj ranking
-                    user_points['pozycja'] = user_points['points'].rank(method='min', ascending=False).astype(int)
-                    user_points = user_points[['pozycja', 'user_name', 'points']]
-                    user_points.columns = ['Pozycja', 'Imię', 'Suma punktów']
-
-                    # Dodaj liczbę wyścigów
-                    races_count = all_subs_df.groupby('user_name').size().reset_index()
-                    races_count.columns = ['Imię', 'Liczba wyścigów']
-
-                    user_points = user_points.merge(races_count, on='Imię')
-                    user_points['Średnio na wyścig'] = (user_points['Suma punktów'] / user_points['Liczba wyścigów']).round(1)
-
-                    # Wyświetl finałową tabelę
-                    final_table = user_points[['Pozycja', 'Imię', 'Suma punktów', 'Liczba wyścigów', 'Średnio na wyścig']]
-                    st.table(final_table)
-
-                    # Wykres z top 3 użytkownikami
-                    st.subheader("Najlepsi typujący")
-                    top3 = user_points.head(3)
-                    fig, ax = plt.subplots()
-                    ax.bar(top3['Imię'], top3['Suma punktów'])
-                    st.pyplot(fig)
-                else:
-                    st.info("Brak danych do wyświetlenia. Wprowadź wyniki wyścigów i odpowiedzi użytkowników.")
-            else:
-                st.info("Brak wyścigów z wprowadzonymi wynikami.")
-        except Exception as e:
-            st.error(f"Błąd podczas pobierania klasyfikacji: {e}")
+if active_races:
+    with st.expander("Aktualna klasyfikacja"):
+        render_leaderboard()
 st.markdown("🏎️ F1 Ankietka by Piotr Antoniszyn © 2025")
