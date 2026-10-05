@@ -1084,8 +1084,7 @@ if st.session_state.show_admin:
                                         "red_flag": red_flag == "Tak",
                                         "classified_drivers": classified_drivers,
                                         "teams_with_points": teams_with_points,
-                                        "extra_answers": extra_answers,
-                                        "updated_at": datetime.now().isoformat()
+                                        "extra_answers": extra_answers
                                     }
                                     
                                     response = supabase.table('results').update(results_data).eq('race_id', selected_race_id).execute()
