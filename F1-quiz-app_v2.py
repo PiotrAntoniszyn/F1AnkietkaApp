@@ -18,6 +18,19 @@ import plotly.graph_objects as go
 # Konfiguracja strony
 st.set_page_config(page_title="F1 Ankietka", page_icon="🏎️", layout="wide")
 
+# Single source of truth for answer options: the user form and both admin result forms
+# must use identical values, otherwise scoring silently fails.
+TIME_DIFF_OPTIONS = ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund",
+                     "10.001-20 sekund", "Więcej niż 20 sekund"]
+CLASSIFIED_DRIVERS_OPTIONS = ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+TEAMS_WITH_POINTS_OPTIONS = [5, 6, 7, 8, 9, 10, 11]
+
+
+def option_index(options, value):
+    """Return the index of value in options, or 0 for legacy values no longer in the option set."""
+    return options.index(value) if value in options else 0
+
+
 # Inicjalizacja klienta Supabase
 try:
     supabase_url = st.secrets["supabase"]["url"]
@@ -511,8 +524,7 @@ else:
         st.subheader("2. Różnica w sekundach między 1. a 2. miejscem (1 punkt)")
         time_diff = st.radio(
             "Wybierz przedział",
-            ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund",
-             "10.001-20 sekund", "Więcej niż 20 sekund"]
+            TIME_DIFF_OPTIONS
         )
 
         # Sekcja 3: Driver of The Day
@@ -537,14 +549,14 @@ else:
         st.subheader("6. Ilu kierowców zostanie sklasyfikowanych? (1 punkt)")
         classified_drivers = st.radio(
             "Wybierz przedział",
-            ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+            CLASSIFIED_DRIVERS_OPTIONS
         )
 
         # Sekcja 7: Liczba zespołów z punktami
         st.subheader("7. Ile zespołów zdobędzie punkty? (1 punkt)")
         teams_with_points = st.select_slider(
             "Wybierz liczbę zespołów",
-            options=[5, 6, 7, 8, 9, 10, 11]
+            options=TEAMS_WITH_POINTS_OPTIONS
         )
 
         # Sekcja 8: Dodatkowe pytania (zmienne)
@@ -1005,10 +1017,8 @@ if st.session_state.show_admin:
                             # Pozostałe wyniki
                             time_diff = st.radio(
                                 "Różnica czasowa między 1. a 2. miejscem",
-                                ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund", 
-                                "10.001-20 sekund", "Więcej niż 20 sekund"],
-                                index=["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund", 
-                                "10.001-20 sekund", "Więcej niż 20 sekund"].index(result['time_diff'])
+                                TIME_DIFF_OPTIONS,
+                                index=option_index(TIME_DIFF_OPTIONS, result['time_diff'])
                             )
                             
                             dotd = st.selectbox("Kierowca dnia (DOTD)", drivers, index=drivers.index(result['driver_of_day']) if result['driver_of_day'] in drivers else 0)
@@ -1027,14 +1037,14 @@ if st.session_state.show_admin:
                             
                             classified_drivers = st.radio(
                                 "Liczba sklasyfikowanych kierowców",
-                                ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"],
-                                index=["20", "19-18", "17-16", "15-14", "Mniej niż 14"].index(result['classified_drivers'])
+                                CLASSIFIED_DRIVERS_OPTIONS,
+                                index=option_index(CLASSIFIED_DRIVERS_OPTIONS, result['classified_drivers'])
                             )
-                            
+
                             teams_with_points = st.select_slider(
                                 "Liczba zespołów z punktami",
-                                options=[5, 6, 7, 8, 9, 10, 11],
-                                value=result['teams_with_points']
+                                options=TEAMS_WITH_POINTS_OPTIONS,
+                                value=result['teams_with_points'] if result['teams_with_points'] in TEAMS_WITH_POINTS_OPTIONS else TEAMS_WITH_POINTS_OPTIONS[0]
                             )
                             
                             # Odpowiedzi na pytania dodatkowe
@@ -1106,10 +1116,9 @@ if st.session_state.show_admin:
                             # Pozostałe wyniki
                             time_diff = st.radio(
                                 "Różnica czasowa między 1. a 2. miejscem",
-                                ["Mniej niż 2 sekundy", "2.001-5 sekund", "5.001-10 sekund", 
-                                "10.001-20 sekund", "Więcej niż 20 sekund"]
+                                TIME_DIFF_OPTIONS
                             )
-                            
+
                             dotd = st.selectbox("Kierowca dnia (DOTD)", drivers)
                             
                             safety_car = st.radio(
@@ -1124,12 +1133,12 @@ if st.session_state.show_admin:
                             
                             classified_drivers = st.radio(
                                 "Liczba sklasyfikowanych kierowców",
-                                ["22", "21-20", "19-18", "17-16", "15-14", "Mniej niż 14"]
+                                CLASSIFIED_DRIVERS_OPTIONS
                             )
-                            
+
                             teams_with_points = st.select_slider(
                                 "Liczba zespołów z punktami",
-                                options=[5, 6, 7, 8, 9, 10, 11]
+                                options=TEAMS_WITH_POINTS_OPTIONS
                             )
                             
                             # Odpowiedzi na pytania dodatkowe
